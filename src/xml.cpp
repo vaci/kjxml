@@ -4,316 +4,355 @@
 
 #include "xml.h"
 
+#include <kj/common.h>
+#include <kj/debug.h>
+#include <kj/vector.h>
+
 namespace xml {
+
+  
+kj::Maybe<const Document&> Node::document() const {
+  const Node* node = this;
+  while (true) {
+    KJ_IF_MAYBE(p, node->parent()) {
+      node = p;
+    }
+    else {
+      break;
+    }
+  }
+
+  if (node->type() == NodeType::DOCUMENT) {
+    return static_cast<const Document&>(*node);
+  }
+  else {
+    return nullptr;
+  }
+}
 
 namespace {
 
   struct AttributeImpl;
-    
-  constexpr kj::byte whitespace[256] = {
- // 0   1   2   3   4   5   6   7   8   9   A   B   C   D   E   F
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  1,  1,  0,  0,  1,  0,  0,  // 0
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  // 1
-    1,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  // 2
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  // 3
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  // 4
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  // 5
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  // 6
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  // 7
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  // 8
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  // 9
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  // A
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  // B
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  // C
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  // D
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  // E
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0   // F
 
-  };
-
-  constexpr kj::byte nodeName[256] = {
- // 0   1   2   3   4   5   6   7   8   9   A   B   C   D   E   F
-    0,  1,  1,  1,  1,  1,  1,  1,  1,  0,  0,  1,  1,  0,  1,  1,  // 0
-    1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  // 1
-    0,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  0,  // 2
-    1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  0,  0,  // 3
-    1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  // 4
-    1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  // 5
-    1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  // 6
-    1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  // 7
-    1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  // 8
-    1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  // 9
-    1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  // A
-    1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  // B
-    1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  // C
-    1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  // D
-    1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  // E
-    1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1   // F
-  };
-
-  constexpr kj::byte digits[256] = {
- // 0   1   2   3   4   5   6   7   8   9   A   B   C   D   E   F
-    255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,  // 0
-    255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,  // 1
-    255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,  // 2
-      0,  1,  2,  3,  4,  5,  6,  7,  8,  9,255,255,255,255,255,255,  // 3
-    255, 10, 11, 12, 13, 14, 15,255,255,255,255,255,255,255,255,255,  // 4
-    255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,  // 5
-    255, 10, 11, 12, 13, 14, 15,255,255,255,255,255,255,255,255,255,  // 6
-    255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,  // 7
-    255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,  // 8
-    255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,  // 9
-    255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,  // A
-    255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,  // B
-    255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,  // C
-    255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,  // D
-    255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,  // E
-    255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255   // F
-  };
-
-  kj::StringPtr skip_ws(kj::StringPtr txt) {
-    auto* tmp = txt.begin();
-    auto count = 0u;
-    while (tmp != txt.end() || *tmp == ' ' || *tmp == '\t') {
-      count++;
-      tmp++;
-    }
-    return kj::StringPtr{tmp, txt.size()-count};
+  bool isNodeName(char ch) {
+    return
+      ch != ' ' &&
+      ch != '\n' &&
+      ch != '\r' &&
+      ch != '\t' &&
+      ch != '/' &&
+      ch != '>' &&
+      ch != '?' &&
+      ch != '\0';
   }
 
-kj::StringPtr parse_bom(kj::StringPtr txt) {
-  if (static_cast<unsigned char>(txt[0]) == 0xEF && 
-      static_cast<unsigned char>(txt[1]) == 0xBB && 
-      static_cast<unsigned char>(txt[2]) == 0xBF) {
-    return kj::StringPtr{txt.begin()+3, txt.size()-3};
+  bool isAttrName(char ch) {
+    return
+      ch != ' ' &&
+      ch != '\n' &&
+      ch != '\r' &&
+      ch != '\t' &&
+      ch != '/' &&
+      ch != '<' &&
+      ch != '>' &&
+      ch != '=' &&
+      ch != '?' &&
+      ch != '!' &&
+      ch != '\0';
+  }
+
+  bool isWhitespace(char ch) {
+    return
+      ch == '\t' ||
+      ch == '\n' ||
+      ch == '\r' ||
+      ch == ' ';
+  }
+
+  bool isPcdata(char ch) {
+    return ch != '<' && ch != '&';
   }
 }
 
-
-struct NodeBaseImpl {
-
-    kj::StringPtr name_{""_kj};
-    kj::StringPtr value_{""_kj};
-    kj::Maybe<Node&> parent_;
-  };
-
-  struct NodeImpl 
-    : Node, NodeBaseImpl {
-
-    NodeImpl(NodeType type)
-      : type_{type} {
-    }
- 
-    NodeType type() const override { return type_; }
-
-    kj::StringPtr name() const override {
-      return name_;
-    }
-
-    kj::StringPtr value() const override {
-      return value_;
-    }
-
-    kj::Maybe<const Node&> parent() const override {
-      return parent_;
-    }
-    
-    kj::Maybe<const Document&> document() const override {
-      const Node* node = this;
-      while (true) {
-	KJ_IF_MAYBE(p, node->parent()) {
-	  node = p;
-	}
-	else {
-	  break;
-	}
-      }
-
-      if (node->type() == NodeType::document) {
-	return static_cast<const Document&>(*node);
-      }
-      else {
-	return nullptr;
-      }
-    }
-
-    kj::Maybe<const Node&> first_node(kj::StringPtr name) const {
-      if (name.size()) {
-	for (auto child = first_node_; child; child = child->next_sibling_) {
-	  if (child->name_ == name) {
-	    return *child;
-	  }
-	  else {
-	    return nullptr;
-	  }
-	}
-      }
-      else {
-	return *first_node_;
-      }
-    }
-
-    kj::Maybe<const Node&> last_node(kj::StringPtr name) const {
-      if (name.size()) {
-	for (auto child = last_node_; child; child = child->prev_sibling_) {
-	  if (child->name_ == name) {
-	    return *child;
-	  }
-	  else {
-	    return nullptr;
-	  }
-	}
-      }
-      else {
-	return *last_node_;
-      }
-    }
-
-    kj::Maybe<const Node&> prev_sibling(kj::StringPtr name = {}) const {
-      if (name.size()) {
-	for (auto sibling = prev_sibling_; sibling; sibling = sibling->prev_sibling_) {
-	  if (sibling->name() == name) {
-	    return *sibling;
-	  }
-	}
-	return nullptr;
-      }
-      else {
-	return *prev_sibling_;
-      }
-    }
-
-    kj::Maybe<const Node&> next_sibling(kj::StringPtr name = {}) const {
-      if (name.size()) {
-	for (auto sibling = next_sibling_; sibling; sibling = sibling->next_sibling_) {
-	  if (sibling->name_ == name) {
-	    return *sibling;
-	  }
-	}
-	return nullptr;
-      }
-      else {
-	return *next_sibling_;
-      }
-    }
-
-    kj::Maybe<const Attribute&> first_attr(kj::StringPtr name = {}) const;
-    kj::Maybe<const Attribute&> last_attr(kj::StringPtr name = {}) const;
-    
-    NodeType type_;
-    NodeImpl* first_node_;
-    NodeImpl* last_node_;
-    AttributeImpl* first_attr_;
-    AttributeImpl* last_attr_;
-    
-    NodeImpl* prev_sibling_;
-    NodeImpl* next_sibling_;
-  };
-
-  struct AttributeImpl
-    : virtual Attribute, NodeBaseImpl  {
-
-    kj::StringPtr name() const override {
-      return name_;
-    }
-
-    kj::StringPtr value() const override {
-      return value_;
-    }
-
-    kj::Maybe<const Node&> parent() const override {
-      return parent_;
-    }
-
-    kj::Maybe<const Document&> document() const override {
-      auto node = &KJ_UNWRAP_OR_RETURN(parent(), nullptr);
-      while (true) {
-	KJ_IF_MAYBE(p, node->parent()) {
-	  node = p;
-	  continue;
-	}
-	else {
-	  if (node->type() == NodeType::document) {
-	    return static_cast<const Document&>(*node);
-	  }
-	  else {
-	    return nullptr;
-	  }
-	}
-      }
-    }
-
-    kj::Maybe<const Attribute&> prev(kj::StringPtr name) const override {
-      if (name.size()) {
-	for (auto attr = prev_attr_; attr; attr = attr->prev_attr_) {
-	  if (attr->name_ == name) {
-	    return *attr;
-	  }
-	}
-	return nullptr;
-      }
-      else {
-	return parent_ != nullptr ? prev_attr_ : nullptr;
-      }
-    }
-
-    kj::Maybe<const Attribute&> next(kj::StringPtr name) const override {
-      if (name.size()) {
-	for (auto attr = next_attr_; attr; attr = attr->next_attr_) {
-	  if (attr->name_ == name) {
-	    return *attr;
-	  }
-	}
-	return nullptr;
-      }
-      else {
-	return parent_ != nullptr ? next_attr_ : nullptr;
-      }
-    }
-    
-    AttributeImpl* prev_attr_;
-    AttributeImpl* next_attr_;
-  };
-
-  kj::Maybe<const Attribute&> NodeImpl::first_attr(kj::StringPtr name) const {
-    if (name.size()) {
-      for (auto attr = first_attr_; attr; attr = attr->next_attr_) {
-	if (attr->name_ == name) {
-	  return *attr;
-	}
-      }
-      return nullptr;
-    }
-    else {
-      return *first_attr_;
+static inline const char* skipSpace(const char* p) {
+  for (;;) {
+    switch (*p) {
+      case '\t':
+      case '\n':
+      case '\r':
+      case ' ':
+        ++p;
+        break;
+      default:
+        return p;
     }
   }
-
-  kj::Maybe<const Attribute&> NodeImpl::last_attr(kj::StringPtr name) const {
-    if (name.size()) {
-      for (auto attr = last_attr_; attr; attr = attr->prev_attr_) {
-	if (attr->name_ == name) {
-	  return *attr;
-	}
-      }
-      return nullptr;
-    }
-    else {
-      return *last_attr_;
-    }
-  }
-
-kj::Own<NodeImpl> parse_xml_declaration(kj::StringPtr txt) {
-  auto node = kj::heap<NodeImpl>();
-  txt = skip_ws(txt);
-  return node;
 }
 
+struct Parser {
+  kj::StringPtr str;
+
+  Parser(kj::StringPtr str)
+    : str(str) {
+  }
+
+  void consume(size_t count = 1) {
+    str = str.slice(count);
+  }
+
+  void skipSpace() {
+    while (str.size() && isWhitespace(str[0])) {
+      consume();
+    }
+  }
+
+  void parseBom() {
+    constexpr auto bom = "\xEF\xBB\xBF"_kj;
+    if (str.startsWith(bom)) {
+      consume(bom.size());
+    }
+  }
+    
+  kj::Own<Node> parseNode();
+
+  kj::Array<kj::Own<Attribute>> parse_node_attrs() {
+    kj::Vector<kj::Own<Attribute>> attrs;
+    
+    while (str.size() && isAttrName(str[0])) {
+      auto name = str;
+      consume();
+      while (str.size() && isAttrName(str[0])) {
+	consume();
+      }
+      KJ_REQUIRE(name != str);
+
+      auto attr = kj::heap<Attribute>();
+      attr->name_ = name.slice(0, str.begin() - name.begin());
+      skipSpace();
+      KJ_REQUIRE(str.size() && str[0] == '=');
+      consume();
+      skipSpace();
+
+      KJ_REQUIRE(str.size());
+      char quote = str[0];
+      KJ_REQUIRE(quote == '\'' || quote == '\"');
+      consume();
+
+      auto len = KJ_REQUIRE_NONNULL(str.findFirst(quote));
+      attr->value_ = str.slice(0, len);
+      attrs.add(kj::mv(attr));
+
+      consume(len);
+      consume();
+      skipSpace();
+    }
+    return attrs.releaseAsArray();
+  }
+
+ kj::Array<kj::Own<Node>> parse_node_contents(Node& node) {
+   kj::Vector<kj::Own<Node>> children;
+   
+  while (true) {
+    auto value = str;
+    skipSpace();
+    KJ_REQUIRE(str.size());
+    if (str[0] == '<') {
+      consume();
+      KJ_REQUIRE(str.size() > 1);
+      if (str[0] == '/') {
+	consume();
+	while (str.size() && isNodeName(str[0])) {
+	  consume();
+	}
+	skipSpace();
+	KJ_REQUIRE(str.size() && str[0] == '>');
+	consume();
+	return children.releaseAsArray();
+      }
+      else {
+	children.add(parseNode());
+      }
+    }
+    else {
+      // data node
+      while (str.size() && isPcdata(str[0])) {
+	consume();
+      }
+      node.value_ = value.slice(0, str.begin() - value.begin());
+    }
+  }
+}
+  
+kj::Own<Node> parse_doctype() {
+  auto value = str;
+  while (str.size()) {
+    switch (str[0]) {
+      case '>': {
+	auto node = kj::heap<Node>(NodeType::DOCTYPE);
+	//node->value_ = kj::arrayPtr(value, txt-value);
+	node->value_ = value.slice(0, str.begin() - value.begin());
+	consume();
+        return node;
+      }
+      case'[': {
+	int depth = 1;
+	while (depth) {
+	  KJ_REQUIRE(str.size());
+	  switch (str[0]) {
+	  case '[': ++depth; break;
+	  case ']': --depth; break;
+	  default: break;
+	  }
+	  consume();
+	}
+	break;
+      }
+
+      default:
+	consume();
+	break;
+    }
+  }
+  KJ_FAIL_REQUIRE("Expected >");
+}
+
+  kj::Own<Node> parsePI() {
+    while (!str.startsWith("?>"_kj)) {
+      KJ_REQUIRE(str.size());
+      consume();
+    }
+
+    consume(2ul);
+    return kj::heap<Node>(NodeType::PI);
+  }
+
+  kj::Own<Node> parseCdata() {
+    auto value = str;
+    while (!str.startsWith("]]>"_kj)) {
+      KJ_REQUIRE(str.size());
+      consume();
+    }
+
+    auto node = kj::heap<Node>(NodeType::CDATA);
+    node->value_ = value.slice(0, str.begin() - value.begin());
+    consume(3ul);
+    return node;
+  }
+
+  kj::Own<Node> parseElement() {
+    auto node = kj::heap<Node>(NodeType::ELEMENT);
+    auto name = str;
+    while (str.size() && isNodeName(str[0])) {
+      consume();
+    }
+    KJ_REQUIRE(str != name);
+    node->name_ = name.slice(0, str.begin() - name.begin());
+    skipSpace();
+    node->attrs_ = parse_node_attrs();
+
+    if (str.startsWith(">"_kj)) {
+     consume();
+     node->children_ = parse_node_contents(*node);
+    }
+    else if (str.startsWith("/>"_kj)) {
+      consume(2ul);
+    }
+    else {
+      KJ_FAIL_REQUIRE("Expected >");
+    }
+    
+    return node;
+  }
+
+  kj::Own<Node> parseComment() {
+    return kj::heap<Node>(NodeType::COMMENT);
+  }
+
+  kj::Own<Node> parseXmlDeclaration() {
+    auto node = kj::heap<Node>(NodeType::DECLARATION);
+    skipSpace();
+    node->attrs_ = parse_node_attrs();
+      return node;
+  }
+    
+
+  kj::Own<Document> parse() {
+    auto doc = kj::Own<Document>();
+    kj::Vector<kj::Own<Node>> nodes;
+    parseBom();
+
+    while (true) {
+      skipSpace();
+
+      if (str.size() == 0) {
+	break;
+      }
+
+      KJ_REQUIRE(str[0] == '<');
+      consume();
+      nodes.add(parseNode());
+    }
+
+    doc->children_ = nodes.releaseAsArray();
+    return doc;
+  }
+};
+
+kj::Own<Node> Parser::parseNode() {
+  KJ_REQUIRE(str.size());
+
+  switch (str[0]) {
+  case '?':
+    consume();
+    if (str.size() >= 4 &&
+	(str[0] == 'x' || str[0] == 'X') &&
+	(str[1] == 'm' || str[1] == 'M') && 
+	(str[2] == 'l' || str[2] == 'L') &&
+	isWhitespace(str[3])) {
+      // '<?xml ' - xml declaration
+      consume(4ul);
+      return parseXmlDeclaration();
+    }
+    else {
+      // Parse PI
+      return parsePI();
+    }
+  case '!': {
+    consume();
+    if (str.startsWith("--"_kj)) {
+      // '<!--' - xml comment
+      consume(2ul);
+      return parseComment();
+    }
+    else  if (str.startsWith("[CDATA["_kj)) {
+      consume(7ul);
+      return parseCdata();
+    }
+    else if (str.startsWith("DOCTYPE") && isWhitespace(str[7])) {
+      // '<!DOCTYPE ' - doctype
+      consume(8ul);
+      return parse_doctype();
+    }
+    else {
+      auto count = KJ_REQUIRE_NONNULL(str.findFirst('>'));
+      consume(count);
+      return kj::heap<Node>(NodeType::UNKNOWN);
+    }
+  }
+  default:
+    return parseElement();
+  }
 }
 
   
 kj::Own<Document> parse(kj::StringPtr txt) {
-  return {};
+  Parser parser{txt};
+  return parser.parse();
+}
+  
+kj::Own<Node> parse_node(kj::StringPtr txt) {
+  Parser parser{txt};
+  return parser.parseNode();
 }
 
 }

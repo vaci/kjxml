@@ -9,15 +9,11 @@ export CXXFLAGS+=-DCAPNP_INCLUDE_PATH=$(CAPNP_INCLUDE_PATH)
 export CXXFLAGS+=-ggdb --std=c++20
 
 export LIBS = \
-  -lsystemd \
   -lcapnpc -lcapnp-rpc -lcapnp \
   -lcapnp-json \
   -lkj-async -lkj-gzip -lkj-http -lkj-tls -lkj-test -lkj \
-  -laws-cpp-sdk-s3 -laws-cpp-sdk-core -laws-crt-cpp \
   -lkj-test \
-  -lexpat \
   -lssl -lcrypto \
-  -luuid \
   -lpthread \
   -lz \
   -lgtest_main -lgtest

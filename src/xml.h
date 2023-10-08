@@ -14,48 +14,53 @@ namespace xml {
   struct Document;
   struct Node;
 
-
-
   enum class NodeType {
+    UNKNOWN,
     DOCUMENT,
-      ELEMENT,
-      DATA,
-      CDATA,
-      COMMENT,
-      DECLARATION,
-      DOCTYPE,
-      PI
+    ELEMENT,
+    DATA,
+    CDATA,
+    COMMENT,
+    DECLARATION,
+    DOCTYPE,
+    PI
   };
 
-  struct NodeBase {
-    virtual ~NodeBase() {}
+  struct Node {
 
-    virtual kj::StringPtr name() const = 0;
-    virtual kj::StringPtr value() const = 0;
-    virtual kj::Maybe<const Node&> parent() const = 0;
-    virtual kj::Maybe<const Document&> document() const = 0;
-  };
+    Node(NodeType type)
+      : type_{type} {
+    }
 
-  struct Node
-    : NodeBase {
+    kj::Maybe<const Node&> parent() const {
+      return parent_;
+    }
 
-    virtual NodeType type() const  = 0;
-    virtual kj::Maybe<const Node&> prev_sibling(kj::StringPtr = {});
-    virtual kj::Maybe<const Node&> next_sibling(kj::StringPtr = {});
+    kj::ArrayPtr<const char> name() const { return name_; }
+    kj::ArrayPtr<const char> value() const { return value_; }
+    
+    kj::Maybe<const Document&> document() const;
+ 
+    NodeType type() const { return type_; }
+
+    NodeType type_;
+    kj::Array<kj::Own<Attribute>> attrs_;
+    kj::ArrayPtr<const char> name_;
+    kj::ArrayPtr<const char> value_;
+    kj::Array<kj::Own<Node>> children_;
+    kj::Maybe<const Node&> parent_;
   };
 
   struct Document
     : Node {
   };
 
-  struct Attribute
-    : NodeBase {
-
-    virtual kj::Maybe<const Document&> document() const = 0;
-    virtual kj::Maybe<const Attribute&> prev(kj::StringPtr name) const = 0;
-    virtual kj::Maybe<const Attribute&> next(kj::StringPtr name) const = 0;
+  struct Attribute {
+    kj::ArrayPtr<const char> name_{};
+    kj::ArrayPtr<const char> value_{};
   };
 
 
   kj::Own<Document> parse(kj::StringPtr txt);
+  kj::Own<Node> parse_node(kj::StringPtr txt);
 }
