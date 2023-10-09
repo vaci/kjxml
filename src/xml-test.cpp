@@ -1,10 +1,9 @@
 #include "xml.h"
 
+#include <kj/debug.h>
+#include <kj/main.h>
 
 #include <gtest/gtest.h>
-
-
-#include <kj/main.h>
 
 struct XmlTest
   : testing::Test {
@@ -15,6 +14,7 @@ struct XmlTest
   ~XmlTest() noexcept {
   }
 };
+
 
 TEST_F(XmlTest, Declaration) {
   auto txt = "?xml ><hello/>"_kj;
@@ -109,6 +109,7 @@ TEST_F(XmlTest, ElementWithChild) {
   EXPECT_EQ(kj::str(node->children_[0]->name()), kj::str("world"));
   EXPECT_EQ(kj::str(node->children_[0]->value()), ""); 
 }
+
 TEST_F(XmlTest, ElementWithChildren) {
   auto txt = R"(foo><bar/><baz/></foo>)";
   auto node = xml::parse_node(txt);
